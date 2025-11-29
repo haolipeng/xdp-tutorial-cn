@@ -1,0 +1,40 @@
+# -*- fill-column: 76; -*-
+#+Title: 高级：XDP 与 TC 交互
+#+OPTIONS: ^:nil
+
+XDP 只是可用的 eBPF 网络钩子之一。另一个非常重要的 eBPF 网络钩子是
+Linux 流量控制（TC）系统，通过 =clsact= 在 /ingress/ 和 /egress/ 都可用。
+
+* 课程
+
+** XDP 元数据到 TC
+
+要在 XDP 和网络堆栈之间传输信息，有多种选项。一种选项是 XDP 可以在
+网络堆栈之前 *修改数据包头部*，例如 pop/push 头部影响网络堆栈中的
+RX 处理器，或者例如修改 MAC-src 并用 iptables 规则匹配。
+
+另一种选项是 XDP "元数据"。"元数据"可以由 XDP 写入，TC 钩子 BPF 程序
+可以读取它，例如更新 SKB 中的字段。
+
+在内核树中有一个 BPF 示例展示了 XDP 和 TC-ingress 钩子如何协作；
+XDP 在元数据中设置信息，TC 使用此元数据设置 SKB 标记字段。
+
+XDP 和 TC BPF 程序代码在：[[https://github.com/torvalds/linux/blob/master/samples/bpf/xdp2skb_meta_kern.c][samples/bpf/xdp2skb_meta_kern.c]]。
+通过 iproute2 加载 XDP 和 TC 的 shell 脚本放在
+[[https://github.com/torvalds/linux/blob/master/samples/bpf/xdp2skb_meta.sh][xdp2skb_meta.sh]]。
+
+** XDP CPU 重定向解决 TC 锁定
+
+一个现实世界的问题是流量整形导致 TC 根 qdisc 锁上的锁竞争
+（例如 [[http://vger.kernel.org/lpc-bpf2018.html#session-1][Google 的服务器遇到了这个问题]] 另见 [[https://doi.org/10.1145/2785956.2787478][文章]]）。
+
+XDP 项目有一个 git 仓库演示如何解决这个问题：
+- https://github.com/xdp-project/xdp-cpumap-tc
+
+它为每个 TXQ 设置 MQ（多队列）qdisc 以使用 HTB 整形器。然后它使用 XDP
+重定向（通过 CPUMAP）流量到负责处理此出口流量的 CPU。在 TC clsact-egress
+钩子中，BPF 程序用适当的 HTB 类 id（通过 skb->queue_mapping）标记 SKB 数据包，
+这样流量整形就按 CPU 隔离。
+
+请注意，它依赖于将首先在内核 v5.1 中可用的内核功能，
+通过 [[https://github.com/torvalds/linux/commit/74e31ca850c1][内核提交 74e31ca850c1]]。

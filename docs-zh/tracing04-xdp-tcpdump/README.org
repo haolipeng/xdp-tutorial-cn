@@ -1,0 +1,116 @@
+# -*- fill-column: 76; -*-
+#+TITLE: 教程：Tracing04 - tcpdump
+#+OPTIONS: ^:nil
+
+在本课中，我们将展示如何将数据包样本从 XDP 程序一直转储到 pcap 转储文件。
+
+* 目录                                                                  :TOC:
+- [[#转储数据包样本][转储数据包样本]]
+- [[#作业][作业]]
+  - [[#作业-1-设置测试环境][作业 1：设置测试环境]]
+  - [[#作业-2-pcap-转储文件][作业 2：PCAP 转储文件]]
+
+* 转储数据包样本
+
+在此示例中，我们将展示如何通过 perf 事件将数据和数据包样本发送到用户空间。
+
+首先你需要定义事件映射，它将允许你通过 perf 事件环形缓冲区将事件
+发送到用户空间：
+
+#+begin_example sh
+struct {
+	__uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
+	__type(key, int);
+	__type(value, struct S);
+	__uint(max_entries, MAX_CPUS);
+} my_map SEC(".maps");
+#+end_example
+
+=value= 确定我们将通过 perf 事件环形缓冲区发布到用户空间的事件数据类型。
+在我们的例子中是 =struct S=：
+
+#+begin_example sh
+struct S {
+        __u16 cookie;
+        __u16 pkt_len;
+} __packed;
+#+end_example
+
+我们设置事件的值（=metadata= 变量）并将它们传递给 =bpf_perf_event_output= 调用：
+
+#+begin_example sh
+int xdp_sample_prog(struct xdp_md *ctx)
+{
+        void *data_end = (void *)(long)ctx->data_end;
+        void *data = (void *)(long)ctx->data;
+
+	...
+
+        __u64 flags = BPF_F_CURRENT_CPU;
+        __u16 sample_size = (__u16)(data_end - data);
+        struct S metadata;
+
+        metadata.cookie = 0xdead;
+        metadata.pkt_len = min(sample_size, SAMPLE_SIZE);
+
+	ret = bpf_perf_event_output(ctx, &my_map, flags,
+				    &metadata, sizeof(metadata));
+	...
+#+end_example
+
+要将实际的数据包转储添加到事件，我们可以用请求的样本大小设置 =flags=
+的高 32 位，=bpf_perf_event_output= 将把指定数量的数据包字节附加到
+perf 事件：
+
+#+begin_example sh
+__u64 flags = BPF_F_CURRENT_CPU;
+
+flags |= (__u64)sample_size << 32;
+
+ret = bpf_perf_event_output(ctx, &my_map, flags,
+                            &metadata, sizeof(metadata));
+#+end_example
+
+请在 =xdp_sample_pkts_kern.c= 文件中查看完整的 eBPF 代码。
+
+* 作业
+
+** 作业 1：设置测试环境
+
+在本课中，我们将使用前一课的设置：
+Basic02 - 按名称加载程序 [[https://github.com/xdp-project/xdp-tutorial/tree/master/basic02-prog-by-name#assignment-2-add-xdp_abort-program]]
+
+#+begin_example sh
+$ sudo ../testenv/testenv.sh setup --name veth-basic02
+#+end_example
+
+并生成一些数据包：
+
+#+begin_example sh
+$ sudo ../testenv/testenv.sh enter --name veth-basic02
+# ping  fc00:dead:cafe:1::1
+PING fc00:dead:cafe:1::1(fc00:dead:cafe:1::1) 56 data bytes
+#+end_example
+
+** 作业 2：PCAP 转储文件
+
+构建 =xdp_sample_pkts_user= 转储程序；为此你可能需要安装 =libpcap-dev=
+和 32 位 libc dev 包。加载 eBPF 内核数据包转储程序并将数据包存储到
+转储文件：
+
+#+begin_example sh
+$ sudo ./xdp_sample_pkts_user -d veth-basic02 -F
+pkt len: 118   bytes. hdr: 76 58 28 55 df 4e fa e2 b6 27 8e 79 86 dd 60 0d 48 1b 00 40 3a 40 fc 00 de ad ca fe 00 ...
+pkt len: 118   bytes. hdr: 76 58 28 55 df 4e fa e2 b6 27 8e 79 86 dd 60 0d 48 1b 00 40 3a 40 fc 00 de ad ca fe 00 ...
+^C
+2 packet samples stored in samples.pcap
+#+end_example
+
+使用 tcpdump 应用程序检查 pcap 转储：
+
+#+begin_example sh
+$ tcpdump -r ./samples.pcap
+reading from file ./samples.pcap, link-type EN10MB (Ethernet)
+12:12:04.553039 IP6 fc00:dead:cafe:1::2 > krava: ICMP6, echo request, seq 2177, length 64
+12:12:05.576864 IP6 fc00:dead:cafe:1::2 > krava: ICMP6, echo request, seq 2178, length 64
+#+end_example
