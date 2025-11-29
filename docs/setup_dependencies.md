@@ -1,0 +1,247 @@
+# 安装依赖
+
+
+在开始完成此 XDP 教程中的步骤之前，请阅读本文档并安装所需的软件包。
+
+- [基于 libxdp 和 libbpf](#基于-libxdp-和-libbpf)
+  - [libxdp 和 libbpf 作为 git 子模块](#libxdp-和-libbpf-作为-git-子模块)
+- [依赖项](#依赖项)
+  - [Fedora 上的包](#fedora-上的包)
+  - [Debian/Ubuntu 上的包](#debianubuntu-上的包)
+  - [openSUSE 上的包](#opensuse-上的包)
+- [内核头文件依赖](#内核头文件依赖)
+  - [Fedora 上的包](#fedora-上的包-1)
+  - [Debian/Ubuntu 上的包](#debianubuntu-上的包-1)
+  - [openSUSE 上的包](#opensuse-上的包-1)
+- [额外工具](#额外工具)
+  - [Fedora 上的包](#fedora-上的包-2)
+  - [Ubuntu 上的包](#ubuntu-上的包)
+  - [Debian 上的包](#debian-上的包)
+  - [openSUSE 上的包](#opensuse-上的包-2)
+- [生成必要的文件](#生成必要的文件)
+
+## 基于 libxdp 和 libbpf
+
+
+此 XDP 教程利用 [libxdp](https://github.com/xdp-project/xdp-tools/) 来加载和管理 XDP 程序。libxdp 库作为
+[XDP 项目](https://github.com/xdp-project) 的一部分进行维护。本教程还利用 [libbpf](https://github.com/libbpf/libbpf/) 来简化 BPF 程序的
+开发和加载。libbpf 库是内核树的一部分，位于 [tools/lib/bpf](https://github.com/torvalds/linux/blob/master/tools/lib/bpf/README.rst) 下，
+但 Facebook 工程师在 GitHub 上维护了一个独立构建版本
+https://github.com/libbpf/libbpf。
+
+### libxdp 和 libbpf 作为 git 子模块
+
+
+此仓库将 [libxdp](https://github.com/xdp-project/xdp-tools/) 和 [libbpf](https://github.com/libbpf/libbpf) 作为 git 子模块使用。
+
+我们首先克隆此仓库：
+
+```bash
+git clone --recurse-submodules https://github.com/xdp-project/xdp-tutorial.git
+```
+
+
+注意：如果你在上一步中错过了 --recurse-submodules 选项，或者你之前已经
+在没有子模块的情况下克隆了它，可以使用以下命令：
+
+```bash
+git submodule update --init --recursive
+```
+
+
+如果你需要将子模块添加到自己的项目中，可以使用以下命令：
+
+```bash
+git submodule add https://github.com/xdp-project/xdp-tools/ xdp-tools
+git submodule add https://github.com/libbpf/libbpf/ libbpf
+```
+
+
+## 依赖项
+
+
+主要依赖项是 `libxdp`、`libbpf`、`llvm`、`clang` 和 `libelf`。LLVM+clang
+将我们受限的 C 程序编译成 BPF 字节码，存储在 ELF 对象文件（`libelf`）中，
+由 `libbpf` 通过 `bpf` 系统调用加载到内核中。XDP 程序由 `libxdp` 管理，
+它实现了 XDP 多路分发协议。一些课程还使用 `perf` 工具通过跟踪点跟踪
+内核行为。
+
+此仓库中的 Makefile 会尝试检测你是否缺少某些依赖项，并给你一些提示。
+
+### Fedora 上的包
+
+
+在运行 Fedora Linux 发行版的机器上，安装以下包：
+
+```bash
+sudo dnf install clang llvm m4
+sudo dnf install elfutils-libelf-devel libpcap-devel perf glibc-devel.i686
+```
+
+
+另请注意，Fedora 默认设置了内核允许的锁定内存量限制，这可能会干扰
+加载 BPF 映射。`testenv.sh` 脚本会为你调整这个，但如果你不使用它，
+你可能会遇到问题。使用此命令提高限制：
+
+```bash
+  # ulimit -l 1024
+```
+
+
+请注意，你需要在用于加载程序的 shell 中执行此操作
+（特别是，它不适用于 `sudo`）。
+
+### Debian/Ubuntu 上的包
+
+
+在 Debian 和 Ubuntu 安装上，像这样安装依赖项：
+
+```bash
+sudo apt install clang llvm libelf-dev libpcap-dev build-essential libc6-dev-i386 m4
+```
+
+
+要安装 'perf' 工具，在 Debian 上运行：
+```bash
+sudo apt install linux-perf
+```
+
+
+或在 Ubuntu 上运行：
+
+```bash
+sudo apt install linux-tools-$(uname -r)
+```
+
+
+### openSUSE 上的包
+
+
+在运行 openSUSE 发行版的机器上，安装以下包：
+
+```bash
+sudo zypper install clang llvm libelf-devel libpcap-devel perf linux-glibc-devel
+```
+
+
+## 内核头文件依赖
+
+
+Linux 内核提供了许多头文件，通常安装在 `/usr/include/linux` 中。
+不同的 Linux 发行版通常提供包含这些头文件的软件包。
+
+我们依赖的一些头文件位于内核树的 include/uapi/linux/ 下
+（例如 include/uapi/linux/bpf.h），但你不应该直接包含这些文件，
+因为它们在导出/安装到发行版的 `/usr/include/linux` 目录时会经过
+转换过程。在内核 git 树中，你可以运行命令：`make headers_install`，
+它将在 "usr/" 目录中创建大量头文件。
+
+目前，本教程依赖于你的发行版提供的内核头文件包。我们可能会选择
+稍后覆盖其中一些。
+
+### Fedora 上的包
+
+
+在运行 Fedora Linux 发行版的机器上，安装以下包：
+```bash
+sudo dnf install kernel-headers
+```
+
+
+### Debian/Ubuntu 上的包
+
+
+在 Debian 和 Ubuntu 安装上，像这样安装头文件：
+
+```bash
+sudo apt install linux-headers-$(uname -r)
+```
+
+
+### openSUSE 上的包
+
+
+在运行 openSUSE 发行版的机器上，安装以下包：
+
+```bash
+sudo zypper install kernel-devel
+```
+
+
+## 额外工具
+
+
+`bpftool` 是检查系统上运行的 BPF 程序的推荐工具。它还提供 eBPF 程序和
+映射的简单操作。`bpftool` 是 Linux 内核树的一部分，位于
+[tools/bpf/bpftool/](https://github.com/torvalds/linux/tree/master/tools/bpf/bpftool) 下，但一些 Linux 发行版也将该工具作为软件包提供。
+
+如果你计划完成数据包处理示例，还应该安装 tcpdump。
+
+### Fedora 上的包
+
+
+在运行 Fedora Linux 发行版的机器上，安装以下包：
+
+```bash
+sudo dnf install bpftool
+sudo dnf install tcpdump
+```
+
+
+### Ubuntu 上的包
+
+
+从 Ubuntu 19.10 开始，可以使用以下命令安装 bpftool：
+
+```bash
+sudo apt install linux-tools-common linux-tools-generic
+sudo apt install tcpdump
+```
+
+
+（Ubuntu 18.04 LTS 也有它，但它是一个旧的且相当有限的 bpftool 版本。）
+
+### Debian 上的包
+
+
+从 Debian Bullseye 开始，可以使用以下命令安装 bpftool：
+
+```bash
+sudo apt install bpftool
+sudo apt install tcpdump
+```
+
+
+（如果你使用的是 Debian Buster，可以从 [buster-backports](https://backports.debian.org) 获取它。）
+
+### openSUSE 上的包
+
+
+在运行 openSUSE Tumbleweed 发行版的机器上，安装以下包：
+
+```bash
+sudo zypper install bpftool
+sudo zypper install tcpdump
+```
+
+
+## 生成必要的文件
+
+
+安装依赖项后，你需要生成必要的文件来完成练习。
+
+首先从仓库根目录运行 ./configure 以确保安装了每个依赖项。
+
+```bash
+./configure
+```
+
+
+如果缺少依赖项，它应该输出一些错误，如果没有，我们可以继续。
+
+现在运行 make 生成所有必要的文件：
+
+```bash
+make
+```
+

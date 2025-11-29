@@ -1,0 +1,242 @@
+# 教程：Basic01 - 加载你的第一个 BPF 程序
+
+
+欢迎来到 XDP 教程的第一步。
+
+XDP 的编程语言是 eBPF（Extended Berkeley Packet Filter），我们将简称为
+BPF。因此，本教程也与学习如何编写其他 BPF 程序相关；但是，主要关注的是
+可以在 XDP 钩子中使用的 BPF 程序。在本课和接下来的几课中，我们将专注于
+BPF 的基础知识以使其运行起来；后续课程将在此基础上教你如何使用 XDP 进行
+数据包处理。
+
+由于这是第一课，我们将从简单开始，不包含任何作业。相反，只需阅读下面的
+文字，确保你能加载程序并理解正在发生的事情。
+
+- [第一步：安装依赖](#第一步-安装依赖)
+- [编译示例代码](#编译示例代码)
+  - [简单的 XDP 代码](#简单的-xdp-代码)
+  - [编译过程](#编译过程)
+  - [查看 BPF-ELF 对象](#查看-bpf-elf-对象)
+- [加载和 XDP 钩子](#加载和-xdp-钩子)
+  - [通过 iproute2 ip 加载](#通过-iproute2-ip-加载)
+  - [使用 xdp-loader 加载](#使用-xdp-loader-加载)
+  - [使用 xdp_pass_user 加载](#使用-xdp_pass_user-加载)
+  - [使用 xdp_pass_user 卸载](#使用-xdp_pass_user-卸载)
+
+## 第一步：安装依赖
+
+
+有许多依赖项需要安装，才能编译此 git 仓库中的源代码。如果你还没有完成，
+请阅读并完成 [../setup_dependencies](../setup_dependencies) 指南。
+
+然后返回这里，看看下一步是否能编译。
+
+## 编译示例代码
+
+
+如果你完成了依赖安装指南，那么你应该能够在此目录中简单地运行 `make` 命令。
+（[Makefile](file:Makefile) 和 [configure](file:../configure) 脚本会尝试友好地检测你是否没有完成安装步骤）。
+
+### 简单的 XDP 代码
+
+
+此步骤中使用的非常简单的 XDP 代码位于 [xdp_pass_kern.c](xdp_pass_kern.c)，如下所示：
+
+```c
+SEC("xdp")
+int  xdp_prog_simple(struct xdp_md *ctx)
+{
+        return XDP_PASS;
+}
+```
+
+
+### 编译过程
+
+
+LLVM+clang 编译器将这个受限的 C 代码转换为 BPF 字节码，并将其存储在
+名为 `xdp_pass_kern.o` 的 ELF 对象文件中。
+
+### 查看 BPF-ELF 对象
+
+
+你可以使用不同的工具如 `readelf` 或 `llvm-objdump` 来检查 `xdp_pass_kern.o`
+文件的内容。由于 Makefile 启用了调试选项 `-g`（LLVM 版本 >= 4.0），
+llvm-objdump 工具可以用原始 C 代码注释汇编输出：
+
+运行：`llvm-objdump -S xdp_pass_kern.o`
+```asm
+xdp_pass_kern.o:	file format ELF64-BPF
+
+Disassembly of section xdp:
+xdp_prog_simple:
+; {
+       0:	b7 00 00 00 02 00 00 00 	r0 = 2
+; return XDP_PASS;
+       1:	95 00 00 00 00 00 00 00 	exit
+```
+
+
+如果你不想看到原始 BPF 指令，可以添加：`--no-show-raw-insn`。
+define/enum XDP_PASS 的值为 2，可以在转储中看到。节名称 "xdp" 是由
+`SEC("xdp")` 定义的，`xdp_prog_simple:` 是我们的 C 函数名。
+
+## 加载和 XDP 钩子
+
+
+正如你现在应该理解的，BPF 字节码存储在 ELF 文件中。要将其加载到内核中，
+用户空间需要一个 ELF 加载器来读取文件并以正确的格式将其传递到内核中。
+
+*libbpf* 库提供了 ELF 加载器和几个 BPF 辅助函数。它理解 BPF 类型格式（BTF）
+并在 ELF 加载过程中实现 [CO-RE](https://nakryiko.com/posts/bpf-core-reference-guide/) 重定位，这就是我们需要 libelf-devel
+依赖的原因。
+
+*libxdp* 库提供了使用 XDP 多路分发协议加载和安装 XDP 程序的辅助函数，
+以及使用 AF_XDP 套接字的辅助函数。**libxdp** 库使用 **libbpf** 并在其之上
+添加额外功能。在本教程中，你将学习如何使用 **libxdp** 和 **libbpf** 库编写
+C 代码。
+
+[xdp_pass_user.c](xdp_pass_user.c) 中的 C 代码（编译后的程序为 `xdp_pass_user`）展示了
+如何专门为我们的 `xdp_pass_kern.o` ELF 文件编写 BPF 加载器。此加载器将
+ELF 文件中的程序附加到网络设备上的 XDP 钩子。
+
+编写一个 C 程序来简单地加载和附加特定的 BPF 程序似乎有些过度。但是，
+我们仍然在教程中包含这部分，因为它将帮助你将 BPF 集成到其他开源项目中。
+
+有一些替代方案可以避免编写新的加载器：
+
+ - 标准 iproute2 工具
+ - xdp-tools 的 xdp-loader
+
+### 通过 iproute2 ip 加载
+
+
+Iproute2 提供基于 libbpf 的 BPF 加载能力，可以与标准 `ip` 工具一起使用；
+所以在这种情况下，你实际上可以像这样加载我们的 ELF 文件 `xdp_pass_kern.o`
+（我们将 ELF 节命名为 "xdp"）：
+
+```sh
+$ sudo ip link set dev lo xdpgeneric obj xdp_pass_kern.o sec xdp
+```
+
+
+通过 `ip link show` 列出设备也会显示 XDP 信息：
+
+```sh
+$ sudo ip link show dev lo
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 xdpgeneric qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    prog/xdp id 408 name xdp_prog_simple tag 3b185187f1855c4c jited
+```
+
+
+如果不使用 `sudo` 运行，你将获得较少的信息：
+
+```sh
+$ ip link show dev lo
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 xdpgeneric qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    prog/xdp id 408
+```
+
+
+从设备中移除 XDP 程序：
+```bash
+$ sudo ip link set dev lo xdpgeneric off
+```
+
+
+需要注意的是，iproute2 的 `ip` 工具没有实现 XDP 多路分发协议。当我们使用
+此工具时，我们的程序直接附加到 `lo` 接口。
+
+### 使用 xdp-loader 加载
+
+
+xdp-tools 项目提供了 `xdp-loader` 工具，它有加载、卸载和显示已加载 XDP
+程序状态的命令。
+
+我们可以像这样使用 XDP 多路分发协议加载 `xdp_pass_kern.o` 程序并附加它：
+
+```sh
+$ sudo xdp-loader load -m skb lo xdp_pass_kern.o
+```
+
+
+我们可以显示附加到设备的 XDP 程序的状态：
+
+```sh
+$ sudo xdp-loader status lo
+CURRENT XDP PROGRAM STATUS:
+
+Interface        Prio  Program name      Mode     ID   Tag               Chain actions
+--------------------------------------------------------------------------------------
+lo                     xdp_dispatcher    skb      486  94d5f00c20184d17
+ =>              50     xdp_prog_simple           493  3b185187f1855c4c  XDP_PASS
+```
+
+
+我们可以使用此命令卸载刚才添加的程序（上例中的 ID 493）：
+
+```sh
+sudo xdp-loader unload -i 493 lo
+```
+
+
+或使用此命令卸载所有程序：
+
+```sh
+sudo xdp-loader unload -a lo
+```
+
+
+### 使用 xdp_pass_user 加载
+
+
+要使用我们自己的加载器加载程序，请执行此命令：
+
+```sh
+ $ sudo ./xdp_pass_user --dev lo
+ Success: Loading XDP prog name:xdp_prog_simple(id:732) on device:lo(ifindex:1)
+```
+
+
+再次加载程序会向接口上的 XDP 分发器添加第二个程序实例。
+
+```sh
+$ sudo ./xdp_pass_user -d lo
+Success: Loading XDP prog name:xdp_prog_simple(id:745) on device:lo(ifindex:1)
+
+$ sudo xdp-loader status lo
+CURRENT XDP PROGRAM STATUS:
+
+Interface        Prio  Program name      Mode     ID   Tag               Chain actions
+--------------------------------------------------------------------------------------
+lo                     xdp_dispatcher    skb      738  94d5f00c20184d17
+ =>              50     xdp_prog_simple           732  3b185187f1855c4c  XDP_PASS
+ =>              50     xdp_prog_simple           745  3b185187f1855c4c  XDP_PASS
+```
+
+
+你可以使用不同的命令列出设备上的 XDP 程序，并验证程序 ID 是否相同：
+- `ip link list dev lo`
+- `bpftool net list dev lo`
+- `xdp-loader status lo`
+
+### 使用 xdp_pass_user 卸载
+
+
+要使用我们自己的加载器卸载程序，使用此命令，带上要卸载程序的 `id`：
+
+```sh
+$ sudo ./xdp_pass_user --dev lo -U 745
+Detaching XDP program with ID 745 from lo
+Success: Unloading XDP prog name: xdp_prog_simple
+```
+
+
+你也可以使用此命令从设备上的 XDP 钩子卸载所有程序：
+
+```sh
+$ sudo ./xdp_pass_user --dev lo --unload-all
+```
+

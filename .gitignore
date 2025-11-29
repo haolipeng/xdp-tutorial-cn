@@ -70,3 +70,11 @@ xdp_sample_pkts_user
 
 # configure output
 config.mk
+
+# Node.js
+node_modules/
+package-lock.json
+
+# VitePress
+docs/.vitepress/dist/
+docs/.vitepress/cache/

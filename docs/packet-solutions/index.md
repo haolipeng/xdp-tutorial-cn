@@ -1,0 +1,102 @@
+# 教程：数据包课程 - 解决方案
+
+
+此目录包含
+[packet01](file:../packet01-parsing/)、
+[packet02](file:../packet02-rewriting/) 和
+[packet03](file:../packet03-redirecting/) 课程中所有作业的解决方案。
+
+- [解决方案](#解决方案)
+  - [Packet01：数据包解析](#packet01-数据包解析)
+  - [Packet02：数据包重写](#packet02-数据包重写)
+  - [Packet03：数据包重定向](#packet03-数据包重定向)
+
+## 解决方案
+
+
+### Packet01：数据包解析
+
+
+#### 作业 1：修复边界检查错误
+
+
+参见 [parsing_helpers.h](file:../common/parsing_helpers.h) 文件中的 `parse_ethhdr` 函数。
+
+#### 作业 2：解析 IP 头部
+
+
+参见 [parsing_helpers.h](file:../common/parsing_helpers.h) 文件中的 `parse_ip6hdr` 函数。
+
+#### 作业 3：解析 ICMPv6 头部并做出响应
+
+
+参见 [parsing_helpers.h](file:../common/parsing_helpers.h) 文件中的 `parse_icmp6hdr` 函数。
+序列号应该作为 `bpf_ntohs(icmp6h->icmp6_sequence)` 访问，
+因为它是一个网络字节序的 2 字节值。
+
+#### 作业 4：添加 VLAN 支持
+
+
+参见 [parsing_helpers.h](file:../common/parsing_helpers.h) 文件中的 `parse_ethhdr` 函数。
+
+#### 作业 5：添加 IPv4 支持
+
+
+参见 [parsing_helpers.h](file:../common/parsing_helpers.h) 文件中的 `parse_iphdr` 和 `parse_icmphdr` 函数。
+
+### Packet02：数据包重写
+
+
+#### 作业 1：重写端口号
+
+
+示例 XDP 程序可以在 [xdp_prog_kern_02.c](file:xdp_prog_kern_02.c) 文件的 `xdp_patch_ports` 节中找到。
+该程序将任何 TCP 或 UDP 数据包的目标端口号减一。
+
+[tc_reply_kern_02.c](file:tc_reply_kern_02.c) 文件中的 `fix_port_egress` 节将在回复数据包中
+将源端口号加一。
+
+生成流量前要执行的步骤：
+tc qdisc add dev eth0 clsact
+tc filter add dev eth0 egress bpf da obj tc_reply_kern_02.o sec tc
+tc filter show dev eth0 egress
+
+清理 qdisc clsact：
+tc qdisc del dev eth0 clsact
+
+#### 作业 2：删除最外层 VLAN 标签
+
+
+参见 [rewrite_helpers.h](file:../common/rewrite_helpers.h) 文件中的 `vlan_tag_pop` 函数。
+示例 XDP 程序可以在 [xdp_prog_kern_02.c](file:xdp_prog_kern_02.c) 文件的 `xdp_vlan_swap` 节中找到。
+
+#### 作业 3：添加回缺失的 VLAN 标签
+
+
+参见 [rewrite_helpers.h](file:../common/rewrite_helpers.h) 文件中的 `vlan_tag_push` 函数。
+示例 XDP 程序可以在 [xdp_prog_kern_02.c](file:xdp_prog_kern_02.c) 文件的 `xdp_vlan_swap` 节中找到。
+
+### Packet03：数据包重定向
+
+
+#### 作业 1：将数据包发送回它们来自的地方
+
+
+参见 [xdp_prog_kern_03.c](file:xdp_prog_kern_03.c) 文件中的 `xdp_icmp_echo` 程序。
+
+#### 作业 2：在两个接口之间重定向数据包
+
+
+参见 [xdp_prog_kern_03.c](file:xdp_prog_kern_03.c) 文件中的 `xdp_redirect` 程序。
+
+#### 作业 3：扩展为双向路由器
+
+
+参见 [xdp_prog_kern_03.c](file:xdp_prog_kern_03.c) 文件中的 `xdp_redirect_map` 程序。
+作业的用户空间部分在 [xdp_prog_user.c](file:xdp_prog_user.c) 文件中实现。
+
+#### 作业 4：使用 BPF 辅助函数进行路由
+
+
+参见 [xdp_prog_kern_03.c](file:xdp_prog_kern_03.c) 文件中的 `xdp_router` 程序。
+作业的用户空间部分在 [xdp_prog_user.c](file:xdp_prog_user.c) 文件中实现。

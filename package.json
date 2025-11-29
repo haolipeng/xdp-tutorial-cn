@@ -1,0 +1,25 @@
+{
+  "name": "xdp-tutorial-cn",
+  "version": "1.0.0",
+  "description": "XDP 编程实战教程 - 中文翻译",
+  "type": "module",
+  "scripts": {
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/haolipeng/xdp-tutorial-cn.git"
+  },
+  "keywords": ["xdp", "ebpf", "bpf", "linux", "networking", "tutorial"],
+  "author": "haolipeng",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/haolipeng/xdp-tutorial-cn/issues"
+  },
+  "homepage": "https://haolipeng.github.io/xdp-tutorial-cn/",
+  "devDependencies": {
+    "vitepress": "^1.6.4"
+  }
+}
