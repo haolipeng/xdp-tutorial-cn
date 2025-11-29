@@ -12,7 +12,14 @@
     "type": "git",
     "url": "git+https://github.com/haolipeng/xdp-tutorial-cn.git"
   },
-  "keywords": ["xdp", "ebpf", "bpf", "linux", "networking", "tutorial"],
+  "keywords": [
+    "xdp",
+    "ebpf",
+    "bpf",
+    "linux",
+    "networking",
+    "tutorial"
+  ],
   "author": "haolipeng",
   "license": "ISC",
   "bugs": {
@@ -20,6 +27,7 @@
   },
   "homepage": "https://haolipeng.github.io/xdp-tutorial-cn/",
   "devDependencies": {
+    "sitemap": "^9.0.0",
     "vitepress": "^1.6.4"
   }
 }
